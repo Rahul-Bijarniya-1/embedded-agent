@@ -75,3 +75,9 @@ def test_export_credentials_without_path_leaves_env_alone(monkeypatch):
     s = Settings(_env_file=None)
     s.export_credentials()
     assert "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ
+
+
+def test_settings_project_defaults_to_empty(monkeypatch):
+    _base_env(monkeypatch)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT")
+    assert Settings(_env_file=None).project == ""

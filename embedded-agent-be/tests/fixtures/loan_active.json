@@ -1,0 +1,16 @@
+{
+  "id": "LOAN002", "name": "Car Loan", "type": "Auto", "outstanding": 120000, "original_amount": 500000,
+  "interest_rate": 9.5, "emi": 8500, "next_due_date": "2026-11-23", "tenure_remaining": "36 months",
+  "status": "Active", "disbursement_date": "2022-02-01", "maturity_date": "2027-02-01", "lender": "ICICI Bank",
+  "account_number": "XXXX5678", "total_paid": 380000, "total_interest_paid": 95000,
+  "prepayment_charges": "3% of outstanding", "late_payment_fee": 750,
+  "vehicle_details": {"make": "Honda", "model": "City", "year": 2022, "registration": "MH01AB1234"},
+  "payment_history": [
+    {"date": "2026-11-13", "month_year": "November 2026", "amount": 4500, "principal": 3000, "interest": 1500, "status": "Paid", "due_date": "2026-11-13", "paid_date": "2026-11-13"},
+    {"date": "2026-10-14", "month_year": "October 2026", "amount": 4500, "principal": 3000, "interest": 1500, "status": "Paid", "due_date": "2026-10-14", "paid_date": "2026-10-14"},
+    {"date": "2026-09-14", "month_year": "September 2026", "amount": 4500, "principal": 3000, "interest": 1500, "status": "Late", "due_date": "2026-09-14", "paid_date": "2026-09-18"},
+    {"date": "2026-08-15", "month_year": "August 2026", "amount": 0, "principal": 0, "interest": 0, "status": "Missed", "due_date": "2026-08-15", "paid_date": null},
+    {"date": "2026-07-16", "month_year": "July 2026", "amount": 4500, "principal": 3000, "interest": 1500, "status": "Paid", "due_date": "2026-07-16", "paid_date": "2026-07-16"},
+    {"date": "2026-06-16", "month_year": "June 2026", "amount": 0, "principal": 0, "interest": 0, "status": "Pending", "due_date": "2026-06-16", "paid_date": null}
+  ]
+}

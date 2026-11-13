@@ -23,7 +23,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    project: str = Field(validation_alias="GOOGLE_CLOUD_PROJECT")
+    project: str = Field("", validation_alias="GOOGLE_CLOUD_PROJECT")
     location: str = Field("global", validation_alias="GOOGLE_CLOUD_LOCATION")
     credentials_path: str | None = Field(None, validation_alias="GOOGLE_APPLICATION_CREDENTIALS")
 

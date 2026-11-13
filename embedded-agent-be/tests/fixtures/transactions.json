@@ -1,0 +1,6 @@
+[
+  {"id": "TXN2000", "date": "2025-01-05", "category": "Food", "type": "debit", "amount": 300, "merchant": "Starbucks"},
+  {"id": "TXN2001", "date": "2025-01-20", "category": "Shopping", "type": "debit", "amount": 1200, "merchant": "Amazon"},
+  {"id": "TXN2002", "date": "2025-02-02", "category": "Food", "type": "debit", "amount": 500, "merchant": "Walmart"},
+  {"id": "TXN2003", "date": "2025-02-10", "category": "Travel", "type": "credit", "amount": 1000, "merchant": "Uber"}
+]

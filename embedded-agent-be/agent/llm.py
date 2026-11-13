@@ -95,6 +95,8 @@ class GeminiBase:
         self.location = location
         self.timeout_s = timeout_s
         self.dead_models: set[str] = set()
+        if not settings.project:
+            raise LLMUnavailable("GOOGLE_CLOUD_PROJECT is not set; see .env.example")
         if not self.models:
             raise LLMUnavailable("No Gemini model id configured")
         try:

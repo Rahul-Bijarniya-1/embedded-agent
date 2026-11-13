@@ -3,6 +3,10 @@ import random
 from datetime import datetime, timedelta
 from fastapi.middleware.cors import CORSMiddleware
 
+from agent.config import get_settings
+from agent.observability import RequestIdMiddleware, configure_logging
+from agent.router import register_exception_handlers, router
+
 app = FastAPI()
 
 app.add_middleware(
@@ -338,102 +342,9 @@ def loans_history():
         for _ in range(40)
     ]
 
-@app.post("/loans/ask")
-def ask_loan_question(request: dict):
-    """
-    TODO: Candidate should implement this endpoint
-    
-    This endpoint should:
-    1. Parse the user's question from request body
-    2. Extract relevant information from the loan_data
-    3. Return a natural language answer
-    
-    Expected request body:
-    {
-        "loan_id": "LOAN001",
-        "question": "What is my total interest paid?",
-        "loan_data": { ... full loan object ... }
-    }
-    
-    Expected response:
-    {
-        "answer": "You have paid ₹18,500 in interest on your Personal Loan."
-    }
-    """
-    # TODO: Implement question answering logic here
-    return {
-        "error": "Not implemented",
-        "message": "This endpoint needs to be implemented by the candidate",
-        "hint": "Parse the question, extract relevant data from loan_data, and return a natural language answer"
-    }
 
-@app.post("/loans/summarize")
-def summarize_loan(request: dict):
-    """
-    TODO: Candidate should implement this endpoint
-    
-    This endpoint should:
-    1. Take the loan_data from request body
-    2. Generate a comprehensive summary
-    3. Return the summary as natural language
-    
-    Expected request body:
-    {
-        "loan_id": "LOAN001",
-        "loan_data": { ... full loan object ... }
-    }
-    
-    Expected response:
-    {
-        "summary": "This is a Personal loan from HDFC Bank with an outstanding balance of ₹50,000..."
-    }
-    """
-    # TODO: Implement summary generation logic here
-    return {
-        "error": "Not implemented",
-        "message": "This endpoint needs to be implemented by the candidate",
-        "hint": "Generate a comprehensive summary including loan type, amounts, rates, and payment status"
-    }
-
-@app.post("/transactions/ask")
-def ask_transactions_question(request: dict):
-    """
-    TODO: Candidate should implement this endpoint
-
-    Expected request body:
-    {
-        "question": "What is my total spend?",
-        "transactions": [ ... list of transactions ... ]
-    }
-
-    Expected response:
-    {
-        "answer": "Your total spend across all transactions is ₹..."
-    }
-    """
-    return {
-        "error": "Not implemented",
-        "message": "This endpoint needs to be implemented by the candidate",
-        "hint": "Parse the question, analyze the transactions list, and return a natural language answer"
-    }
-
-@app.post("/transactions/summarize")
-def summarize_transactions(request: dict):
-    """
-    TODO: Candidate should implement this endpoint
-
-    Expected request body:
-    {
-        "transactions": [ ... list of transactions ... ]
-    }
-
-    Expected response:
-    {
-        "summary": "In the last 6 months, you spent ..."
-    }
-    """
-    return {
-        "error": "Not implemented",
-        "message": "This endpoint needs to be implemented by the candidate",
-        "hint": "Compute totals, top categories, and generate a concise summary"
-    }
+# --- AI assistant: Summarize / Ask / Explain / TTS live in the agent package ---------
+configure_logging(get_settings().log_level)
+app.add_middleware(RequestIdMiddleware)
+register_exception_handlers(app)
+app.include_router(router)
