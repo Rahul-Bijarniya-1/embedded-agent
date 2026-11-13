@@ -1,2 +1,7 @@
 fastapi
-uvicorn
+uvicorn[standard]
+pydantic-settings
+google-genai>=1.0
+pytest
+pytest-asyncio
+httpx

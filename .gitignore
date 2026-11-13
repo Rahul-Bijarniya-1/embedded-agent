@@ -1,0 +1,17 @@
+# virtualenvs
+.venv/
+venv/
+temp_venv/
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+# secrets and local config
+.env
+embedded-agent-be/secrets/
+embedded-agent-be/scratch/
+# tooling scratch
+.superpowers/
+# os / node
+.DS_Store
+node_modules/
