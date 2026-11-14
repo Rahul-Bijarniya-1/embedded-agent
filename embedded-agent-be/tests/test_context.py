@@ -158,7 +158,7 @@ def test_to_prompt_text_is_json():
 def test_loan_context_active_fields():
     c = build_loan_context(ACTIVE, locale="en-US", today=TODAY)
     assert c.page == "loan"
-    assert c.page_title == "Car Loan - Detailed View"
+    assert c.page_title == "Loan Details"
     f = c.facts
     assert f["status"] == "Active"
     assert f["next_due_date"] == "2026-11-23"

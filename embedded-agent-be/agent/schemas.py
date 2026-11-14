@@ -146,9 +146,13 @@ class LoanAskRequest(_Lenient):
 
 # --- Explain and speech ----------------------------------------------------------------
 
+# page and section become part of the system prompt's page title, so they are identifiers, never free text.
+IDENTIFIER = r"^[A-Za-z0-9][A-Za-z0-9 _-]*$"
+
+
 class ExplainRequest(_Lenient):
-    page: str = Field(min_length=1, max_length=64)
-    section: str = Field(min_length=1, max_length=64)
+    page: str = Field(min_length=1, max_length=64, pattern=IDENTIFIER)
+    section: str = Field(min_length=1, max_length=64, pattern=IDENTIFIER)
     section_text: str = Field("", max_length=MAX_SECTION_TEXT_CHARS)
     data: Any | None = None
     locale: Locale = DEFAULT_LOCALE

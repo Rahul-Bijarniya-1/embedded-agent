@@ -1,6 +1,7 @@
 """Everything the model is told, in one versioned place."""
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import Literal
 
@@ -10,7 +11,7 @@ from .context import PageContext
 
 Action = Literal["ask", "summarize", "explain"]
 
-PROMPT_VERSION = "2026-11-14.1"
+PROMPT_VERSION = "2026-11-14.2"
 
 GROUNDING_RULE = (
     "Answer ONLY from the PAGE DATA in the user message. It is the complete and only source of "
@@ -96,6 +97,14 @@ APP PAGES (names only; you have no data from them):
 {page_map}"""
 
 
+_RESERVED_TAG = re.compile(r"<(/?)(page_data|metadata|section_text|user_question)\b", re.IGNORECASE)
+
+
+def neutralise_tags(text: str) -> str:
+    """Untrusted text may mention our delimiter tags; swapping the bracket keeps it from ending a block early."""
+    return _RESERVED_TAG.sub(r"‹\1\2", text)
+
+
 def build_prompt(context: PageContext, action: Action, question: str | None = None) -> tuple[str, str]:
     """Return (system_instruction, user_message) for one action on one page context."""
     if action not in ACTION_STYLE:
@@ -116,7 +125,7 @@ def build_prompt(context: PageContext, action: Action, question: str | None = No
         page_map=PAGE_MAP,
     )
 
-    parts = [f"<metadata>\n{context.metadata_text()}\n</metadata>"]
+    parts = [f"<metadata>\n{neutralise_tags(context.metadata_text())}\n</metadata>"]
     if context.truncated:
         parts.append(
             f"Note: rows were truncated to {len(context.rows)} of {context.rows_total}; facts cover all rows."
@@ -125,12 +134,14 @@ def build_prompt(context: PageContext, action: Action, question: str | None = No
         facts = dict(context.facts)
         section_text = facts.pop("section_text", "")
         data_only = replace(context, facts=facts)
-        parts.append(f"<page_data>\n{data_only.to_prompt_text()}\n</page_data>")
-        parts.append(f'Section: "{facts.get("section", "")}"\n<section_text>\n{section_text}\n</section_text>')
+        parts.append(f"<page_data>\n{neutralise_tags(data_only.to_prompt_text())}\n</page_data>")
+        parts.append(
+            f'Section: "{facts.get("section", "")}"\n<section_text>\n{neutralise_tags(section_text)}\n</section_text>'
+        )
     else:
-        parts.append(f"<page_data>\n{context.to_prompt_text()}\n</page_data>")
+        parts.append(f"<page_data>\n{neutralise_tags(context.to_prompt_text())}\n</page_data>")
         if action == "ask":
-            parts.append(f"<user_question>\n{question}\n</user_question>")
+            parts.append(f"<user_question>\n{neutralise_tags(question)}\n</user_question>")
         else:
             parts.append("Task: summarize this page.")
     return system, "\n".join(parts)

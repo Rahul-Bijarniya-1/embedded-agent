@@ -214,7 +214,7 @@ def build_loan_context(
     ]
     return PageContext(
         page="loan",
-        page_title=f"{loan.name} - Detailed View",
+        page_title="Loan Details",  # a constant: the loan's own name is data and stays out of the system prompt
         facts=facts,
         rows=rows,
         rows_total=len(history),
