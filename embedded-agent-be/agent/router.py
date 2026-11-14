@@ -157,6 +157,16 @@ async def health(request: Request) -> dict[str, Any]:
     }
 
 
+# What the page is told. The detail (file paths, project and model resource names, SDK text) stays in the logs.
+CLIENT_MESSAGES = {
+    "rate_limited": "The assistant is busy right now. Please try again in a few seconds.",
+    "llm_timeout": "The assistant took too long to respond. Please try again.",
+    "llm_unavailable": "The assistant is not available right now. Please try again later.",
+    "llm_blocked": "The assistant could not produce an answer for that request.",
+    "llm_error": "The assistant could not complete that request. Please try again.",
+}
+
+
 def _error(status: int, code: str, message: str, headers: dict[str, str] | None = None) -> JSONResponse:
     return JSONResponse(status_code=status, content={"error": code, "message": message}, headers=headers)
 
@@ -172,7 +182,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     for exc_type, status, code in mapping:
         def make_handler(status: int = status, code: str = code):
             async def handler(request: Request, exc: Exception) -> JSONResponse:
-                return _error(status, code, str(exc) or code)
+                logger.warning("ai_error", extra={"event_fields": {"error": code, "status": status, "detail": str(exc)[:300]}})
+                return _error(status, code, CLIENT_MESSAGES[code])
             return handler
         app.add_exception_handler(exc_type, make_handler())
 

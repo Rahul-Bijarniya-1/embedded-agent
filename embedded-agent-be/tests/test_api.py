@@ -272,3 +272,39 @@ def test_explain_rejects_a_page_name_that_is_not_an_identifier(client, fake_llm)
     assert response.json()["error"] == "invalid_request"
     assert "page" in response.json()["message"]
     assert fake_llm.calls == []
+
+
+# --- Task 10: what the page is told, and what only the logs keep --------------------------
+
+import logging  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "error, status, code",
+    [
+        (LLMRateLimited("quota exceeded for project goodscore-stage"), 429, "rate_limited"),
+        (LLMTimeout("timed out calling https://aiplatform.googleapis.com/v1/projects/goodscore-stage"), 504, "llm_timeout"),
+        (LLMUnavailable("File /Users/dev/secrets/sa.json was not found"), 503, "llm_unavailable"),
+        (LLMBlocked("safety filter hit on projects/goodscore-stage"), 502, "llm_blocked"),
+        (LLMError("Gemini request failed (400): projects/goodscore-stage/locations/global"), 502, "llm_error"),
+    ],
+)
+def test_error_messages_shown_to_the_page_carry_no_internal_details(client, fake_llm, error, status, code):
+    fake_llm.error = error
+    response = client.post("/transactions/summarize", json={"transactions": TXNS})
+    body = response.json()
+    assert (response.status_code, body["error"]) == (status, code)
+    assert body["message"][:1].isupper() and body["message"].endswith(".")
+    for internal in ("goodscore", "/Users", "googleapis", "projects/"):
+        assert internal not in body["message"]
+
+
+def test_the_detail_withheld_from_the_page_is_logged(client, fake_llm, caplog):
+    fake_llm.error = LLMUnavailable("File /Users/dev/secrets/sa.json was not found")
+    with caplog.at_level(logging.WARNING, logger="agent"):
+        client.post("/transactions/summarize", json={"transactions": TXNS})
+    events = [r.event_fields for r in caplog.records if r.getMessage() == "ai_error"]
+    assert events and events[-1]["error"] == "llm_unavailable"
+    assert "sa.json" in events[-1]["detail"]

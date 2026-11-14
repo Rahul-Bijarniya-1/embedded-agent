@@ -8,6 +8,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
@@ -79,11 +80,37 @@ def describe_error(exc: BaseException) -> tuple[int | None, str]:
     return code, str(message)
 
 
-def is_timeout(exc: BaseException) -> bool:
-    if isinstance(exc, (asyncio.TimeoutError, TimeoutError, httpx.TimeoutException)):
+_TIMEOUT_CLASS_NAMES = {"TimeoutException", "TimeoutError", "ReadTimeout", "ConnectTimeout", "WriteTimeout", "PoolTimeout"}
+_CREDENTIAL_CLASS_NAMES = {"DefaultCredentialsError", "RefreshError", "GoogleAuthError"}
+
+
+def is_timeout(exc: BaseException | None) -> bool:
+    """Timeouts surface from several HTTP stacks (the Google SDK vendors its own httpx as httpx2, with an
+    empty message), so match by class name and look through the cause chain."""
+    seen: set[int] = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, (asyncio.TimeoutError, TimeoutError, httpx.TimeoutException)):
+            return True
+        if any(cls.__name__ in _TIMEOUT_CLASS_NAMES for cls in type(exc).__mro__):
+            return True
+        text = str(exc).lower()
+        if "timed out" in text or "timeout" in text:
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+def is_credentials_error(exc: BaseException) -> bool:
+    """A missing or unusable key is a configuration problem, never a reason to retire a model id."""
+    if isinstance(exc, (FileNotFoundError, PermissionError)):
         return True
-    text = str(exc).lower()
-    return "timed out" in text or "timeout" in text
+    return any(cls.__name__ in _CREDENTIAL_CLASS_NAMES for cls in type(exc).__mro__)
+
+
+def is_model_not_found(code: int | None, message: str) -> bool:
+    text = message.lower()
+    return code == 404 or ("model" in text and "not found" in text)
 
 
 class GeminiBase:
@@ -97,6 +124,8 @@ class GeminiBase:
         self.dead_models: set[str] = set()
         if not settings.project:
             raise LLMUnavailable("GOOGLE_CLOUD_PROJECT is not set; see .env.example")
+        if settings.credentials_path and not Path(settings.credentials_path).is_file():
+            raise LLMUnavailable("The service-account key file was not found; see .env.example")
         if not self.models:
             raise LLMUnavailable("No Gemini model id configured")
         try:
@@ -155,7 +184,9 @@ class GeminiBase:
                 code, message = describe_error(exc)
                 if code is None and is_timeout(exc):
                     raise LLMTimeout(f"Gemini call timed out after {self.timeout_s:.0f}s") from exc
-                if code == 404 or "not found" in message.lower():
+                if is_credentials_error(exc):
+                    raise LLMUnavailable(f"Gemini credentials are missing or unusable: {type(exc).__name__}") from exc
+                if is_model_not_found(code, message):
                     raise _ModelNotFound(message) from exc
                 if code == 400 and "thinking" in message.lower() and self._step_down_thinking(model):
                     continue

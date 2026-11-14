@@ -206,3 +206,55 @@ async def test_no_thinking_level_configured_sends_none(monkeypatch):
     calls = script(c, [Resp("ok")])
     await generate(c)
     assert calls[0]["config"].get("thinking_level") is None
+
+
+# --- Task 10: failure modes the live checks found -----------------------------------------
+
+class TimeoutException(Exception):
+    """The Google SDK ships its own copy of httpx (module httpx2): the same class names in a different tree."""
+
+
+class ConnectTimeout(TimeoutException):
+    pass
+
+
+async def test_a_timeout_from_the_sdks_own_http_stack_maps_to_llm_timeout(client):
+    script(client, [ConnectTimeout("")])
+    with pytest.raises(LLMTimeout):
+        await generate(client)
+
+
+async def test_a_timeout_wrapped_in_another_exception_is_still_a_timeout(client):
+    wrapped = RuntimeError("request failed")
+    wrapped.__cause__ = TimeoutError()
+    script(client, [wrapped])
+    with pytest.raises(LLMTimeout):
+        await generate(client)
+
+
+async def test_missing_credentials_do_not_mark_models_dead(client):
+    script(client, [FileNotFoundError("File /keys/sa.json was not found.")])
+    with pytest.raises(LLMUnavailable):
+        await generate(client)
+    assert client.dead_models == set()
+    assert client.active_model == "m1"
+
+
+async def test_not_found_without_a_status_code_still_means_a_dead_model(client):
+    script(client, [RuntimeError("Publisher model `m1` was not found or your project does not have access"), Resp("from m2")])
+    assert (await generate(client)).model == "m2"
+    assert client.dead_models == {"m1"}
+
+
+def test_a_configured_key_file_that_does_not_exist_is_unavailable_at_startup(monkeypatch):
+    monkeypatch.setattr(GeminiClient, "_make_client", lambda self: object())
+    with pytest.raises(LLMUnavailable) as info:
+        GeminiClient(make_settings(credentials_path="/definitely/not/here/sa.json"))
+    assert "/definitely" not in str(info.value)
+
+
+def test_an_existing_key_file_is_accepted(monkeypatch, tmp_path):
+    key = tmp_path / "sa.json"
+    key.write_text("{}")
+    monkeypatch.setattr(GeminiClient, "_make_client", lambda self: object())
+    GeminiClient(make_settings(credentials_path=str(key)))
