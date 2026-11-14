@@ -190,3 +190,19 @@ async def test_tts_request_is_logged(assistant, fake_tts, caplog):
     assert event["cache_hit"] is False
     assert event["outcome"] == "ok"
     assert event["latency_ms"] >= 0
+
+
+# --- Task 9: Refresh regenerates an explanation instead of replaying the cached one ------
+
+async def test_explain_refresh_bypasses_cache_and_replaces_the_cached_entry(assistant, fake_llm):
+    fake_llm.replies = ["First wording.", "Second wording."]
+    base = dict(page="Dashboard", section="top-transactions", section_text="Top Transactions", data=[{"amount": 1}])
+    first = await assistant.explain(ExplainRequest(**base), request_id="a")
+    refreshed = await assistant.explain(ExplainRequest(**base, refresh=True), request_id="b")
+    later = await assistant.explain(ExplainRequest(**base), request_id="c")
+    assert len(fake_llm.calls) == 2
+    assert first.explanation == "First wording."
+    assert refreshed.explanation == "Second wording."
+    assert refreshed.meta.cached is False
+    assert later.explanation == "Second wording."
+    assert later.meta.cached is True

@@ -152,6 +152,7 @@ class ExplainRequest(_Lenient):
     section_text: str = Field("", max_length=MAX_SECTION_TEXT_CHARS)
     data: Any | None = None
     locale: Locale = DEFAULT_LOCALE
+    refresh: bool = False  # the page's Refresh button: skip the cached wording and generate again
 
     @field_validator("data")
     @classmethod

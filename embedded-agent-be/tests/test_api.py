@@ -252,3 +252,15 @@ def test_explain_and_tts_are_rate_limited(client, fake_llm):
     client.app.dependency_overrides[router_module.rate_limit_dependency] = RateLimitDependency(TokenBucketLimiter(per_minute=1))
     assert client.post("/explain", json=EXPLAIN).status_code == 200
     assert client.post("/tts", json={"text": "Hello"}).status_code == 429
+
+
+# --- Task 9: the page's Refresh button sends refresh=true --------------------------------
+
+def test_explain_refresh_flag_regenerates_instead_of_serving_the_cache(client, fake_llm):
+    fake_llm.replies = ["First wording.", "Second wording."]
+    first = client.post("/explain", json=EXPLAIN).json()
+    refreshed = client.post("/explain", json={**EXPLAIN, "refresh": True}).json()
+    assert len(fake_llm.calls) == 2
+    assert first["explanation"] == "First wording."
+    assert refreshed["explanation"] == "Second wording."
+    assert refreshed["meta"]["cached"] is False

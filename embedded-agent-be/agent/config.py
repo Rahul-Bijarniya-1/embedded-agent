@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     tts_voice: str = Field("Kore", validation_alias="GEMINI_TTS_VOICE")
 
     timeout_s: float = Field(30.0, validation_alias="LLM_TIMEOUT_S")
-    tts_timeout_s: float = Field(20.0, validation_alias="TTS_TIMEOUT_S")
+    tts_timeout_s: float = Field(45.0, validation_alias="TTS_TIMEOUT_S")
 
     rate_limit_per_minute: int = Field(20, validation_alias="RATE_LIMIT_PER_MINUTE")
     cache_ttl_s: int = Field(600, validation_alias="CACHE_TTL_S")

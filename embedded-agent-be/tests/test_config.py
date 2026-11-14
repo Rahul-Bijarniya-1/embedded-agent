@@ -27,7 +27,7 @@ def test_settings_parses_model_lists_and_defaults(monkeypatch):
     assert s.tts_voice == "Kore"
     assert s.thinking_level == "minimal"
     assert s.timeout_s == 30.0
-    assert s.tts_timeout_s == 20.0
+    assert s.tts_timeout_s == 45.0
     assert s.rate_limit_per_minute == 20
     assert s.cache_ttl_s == 600
     assert s.cache_size == 256

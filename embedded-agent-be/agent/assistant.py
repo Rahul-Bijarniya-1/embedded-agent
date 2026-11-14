@@ -125,7 +125,7 @@ class Assistant:
             request.page, request.section, request.section_text, request.data,
             locale=request.locale, today=self._today(),
         )
-        text, _, meta = await self._generate(context, "explain", None, request_id)
+        text, _, meta = await self._generate(context, "explain", None, request_id, bypass_cache=request.refresh)
         return ExplainResponse(explanation=text, meta=meta)
 
     async def synthesize(self, request: TtsRequest, request_id: str = "") -> tuple[bytes, str, bool]:
@@ -179,7 +179,7 @@ class Assistant:
         return SummaryResponse(summary=text, meta=meta)
 
     async def _generate(
-        self, context: PageContext, action: Action, question: str | None, request_id: str
+        self, context: PageContext, action: Action, question: str | None, request_id: str, *, bypass_cache: bool = False
     ) -> tuple[str, Scope | None, Meta]:
         started = self._clock()
         system, user = build_prompt(context, action, question)
@@ -199,7 +199,7 @@ class Assistant:
         input_tokens = output_tokens = None
         outcome = "ok"
 
-        cached = self.cache.get(key)
+        cached = None if bypass_cache else self.cache.get(key)
         if cached is not None:
             text, scope, model = cached
             cache_hit = True
