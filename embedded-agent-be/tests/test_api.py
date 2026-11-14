@@ -308,3 +308,23 @@ def test_the_detail_withheld_from_the_page_is_logged(client, fake_llm, caplog):
     events = [r.event_fields for r in caplog.records if r.getMessage() == "ai_error"]
     assert events and events[-1]["error"] == "llm_unavailable"
     assert "sa.json" in events[-1]["detail"]
+
+
+@pytest.mark.parametrize("literal", ["NaN", "Infinity", "-Infinity", "1e999"])
+def test_non_finite_numbers_in_a_loan_are_422_not_500(client, fake_llm, literal):
+    body = (
+        '{"loan_data": {"name": "Car Loan", "type": "Auto", "status": "Active", "outstanding": %s, '
+        '"original_amount": 2, "emi": 1, "interest_rate": 9.5}}' % literal
+    )
+    response = client.post("/loans/summarize", content=body, headers={"content-type": "application/json"})
+    assert response.status_code == 422
+    assert response.json()["error"] == "invalid_request"
+    assert "outstanding" in response.json()["message"]
+    assert fake_llm.calls == []
+
+
+def test_infinite_transaction_amount_is_422_not_500(client):
+    body = '{"transactions": [{"date": "2025-01-05", "category": "Food", "merchant": "A", "type": "debit", "amount": Infinity}]}'
+    response = client.post("/transactions/summarize", content=body, headers={"content-type": "application/json"})
+    assert response.status_code == 422
+    assert "amount" in response.json()["message"]

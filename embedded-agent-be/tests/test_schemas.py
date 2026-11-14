@@ -151,3 +151,29 @@ def test_explain_page_and_section_must_be_plain_identifiers(field, bad):
     ExplainRequest.model_validate(base)
     with pytest.raises(ValidationError):
         ExplainRequest.model_validate({**base, field: bad})
+
+
+# --- Task 10 review: NaN and infinity are malformed numbers, never a 500 ----------------------
+
+from agent.schemas import LoanData, PaymentRow, TransactionRow  # noqa: E402
+
+_LOAN_MIN = {"name": "Car Loan", "type": "Auto", "status": "Active", "outstanding": 1, "original_amount": 2, "emi": 1, "interest_rate": 9.5}
+
+
+@pytest.mark.parametrize("field", ["outstanding", "original_amount", "emi", "interest_rate", "total_paid", "total_interest_paid", "late_payment_fee"])
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_loan_numbers_must_be_finite(field, bad):
+    with pytest.raises(ValidationError):
+        LoanData.model_validate({**_LOAN_MIN, field: bad})
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_transaction_amount_must_be_finite(bad):
+    with pytest.raises(ValidationError):
+        TransactionRow.model_validate({"date": "2025-01-05", "category": "Food", "merchant": "A", "type": "debit", "amount": bad})
+
+
+@pytest.mark.parametrize("field", ["amount", "principal", "interest"])
+def test_payment_row_numbers_must_be_finite(field):
+    with pytest.raises(ValidationError):
+        PaymentRow.model_validate({"month_year": "June 2026", "status": "Paid", field: float("inf")})

@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     tts_timeout_s: float = Field(45.0, validation_alias="TTS_TIMEOUT_S")
 
     rate_limit_per_minute: int = Field(20, validation_alias="RATE_LIMIT_PER_MINUTE")
+    trust_forwarded_for: bool = Field(False, validation_alias="TRUST_FORWARDED_FOR")
     cache_ttl_s: int = Field(600, validation_alias="CACHE_TTL_S")
     cache_size: int = Field(256, validation_alias="CACHE_SIZE")
     log_level: str = Field("INFO", validation_alias="LOG_LEVEL")

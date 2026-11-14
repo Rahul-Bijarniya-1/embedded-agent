@@ -35,9 +35,10 @@ class TokenBucketLimiter:
         return False, (1.0 - tokens) / rate
 
 
-def client_id(request: Any) -> str:
+def client_id(request: Any, trust_forwarded: bool = False) -> str:
+    """The peer address; X-Forwarded-For only when a trusted proxy is known to set it (anyone can send that header)."""
     headers = getattr(request, "headers", None) or {}
-    forwarded = headers.get("x-forwarded-for")
+    forwarded = headers.get("x-forwarded-for") if trust_forwarded else None
     if forwarded:
         first = forwarded.split(",")[0].strip()
         if first:
@@ -49,11 +50,12 @@ def client_id(request: Any) -> str:
 class RateLimitDependency:
     """FastAPI dependency: raises 429 with Retry-After when the client's bucket is empty."""
 
-    def __init__(self, limiter: TokenBucketLimiter):
+    def __init__(self, limiter: TokenBucketLimiter, trust_forwarded: bool = False):
         self.limiter = limiter
+        self.trust_forwarded = trust_forwarded
 
     async def __call__(self, request: Request) -> None:
-        allowed, retry_after = self.limiter.allow(client_id(request))
+        allowed, retry_after = self.limiter.allow(client_id(request, self.trust_forwarded))
         if not allowed:
             raise HTTPException(
                 status_code=429,

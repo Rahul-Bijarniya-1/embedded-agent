@@ -53,9 +53,10 @@ Locale = Annotated[str, BeforeValidator(normalise_locale)]
 
 
 class _Lenient(BaseModel):
-    """Ignore unknown keys: the page may send more than it displays."""
+    """Ignore unknown keys (the page may send more than it displays) and reject NaN and infinity, which would
+    otherwise crash money formatting with a 500."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
 
 
 # --- Transactions page -----------------------------------------------------------------

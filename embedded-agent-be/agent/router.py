@@ -63,7 +63,10 @@ def get_assistant() -> Assistant:
 
 async def rate_limit_dependency(request: Request) -> None:
     if "limiter" not in _state:
-        _state["limiter"] = RateLimitDependency(TokenBucketLimiter(get_settings().rate_limit_per_minute))
+        settings = get_settings()
+        _state["limiter"] = RateLimitDependency(
+            TokenBucketLimiter(settings.rate_limit_per_minute), trust_forwarded=settings.trust_forwarded_for
+        )
     await _state["limiter"](request)
 
 

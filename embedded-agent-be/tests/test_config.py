@@ -81,3 +81,9 @@ def test_settings_project_defaults_to_empty(monkeypatch):
     _base_env(monkeypatch)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT")
     assert Settings(_env_file=None).project == ""
+
+
+def test_forwarded_for_is_not_trusted_unless_asked(monkeypatch):
+    assert Settings(_env_file=None).trust_forwarded_for is False
+    monkeypatch.setenv("TRUST_FORWARDED_FOR", "1")
+    assert Settings(_env_file=None).trust_forwarded_for is True

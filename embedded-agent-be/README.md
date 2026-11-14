@@ -30,6 +30,7 @@ Read from the environment or `.env` (see `.env.example`). Model settings are ord
 | `GEMINI_TTS_LOCATION` / `GEMINI_TTS_VOICE` | `global` / `Kore` | Speech location and voice |
 | `LLM_TIMEOUT_S` / `TTS_TIMEOUT_S` | `30` / `45` | Per-call timeouts (speech takes roughly 25 to 50 ms per character) |
 | `RATE_LIMIT_PER_MINUTE` | `20` | Per-client limit on AI and speech routes; `0` disables |
+| `TRUST_FORWARDED_FOR` | `0` | `1` makes the limiter use `X-Forwarded-For`; only behind a proxy you control that overwrites it |
 | `CACHE_TTL_S` / `CACHE_SIZE` | `600` / `256` | Answer cache lifetime and entries |
 | `LOG_LEVEL` | `INFO` | JSON log level |
 

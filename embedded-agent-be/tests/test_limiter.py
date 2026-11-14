@@ -38,9 +38,11 @@ def test_limiter_isolates_clients():
     assert limiter.allow("b")[0] is True
 
 
-def test_client_id_prefers_forwarded_for():
-    assert client_id(SimpleNamespace(headers={"x-forwarded-for": "9.9.9.9, 10.0.0.1"}, client=SimpleNamespace(host="1.1.1.1"))) == "9.9.9.9"
-    assert client_id(SimpleNamespace(headers={}, client=SimpleNamespace(host="1.1.1.1"))) == "1.1.1.1"
+def test_client_id_ignores_forwarded_for_unless_trusted():
+    behind_proxy = SimpleNamespace(headers={"x-forwarded-for": "9.9.9.9, 10.0.0.1"}, client=SimpleNamespace(host="1.1.1.1"))
+    assert client_id(behind_proxy) == "1.1.1.1"
+    assert client_id(behind_proxy, trust_forwarded=True) == "9.9.9.9"
+    assert client_id(SimpleNamespace(headers={}, client=SimpleNamespace(host="1.1.1.1")), trust_forwarded=True) == "1.1.1.1"
     assert client_id(SimpleNamespace(headers={}, client=None)) == "unknown"
 
 
@@ -53,3 +55,38 @@ async def test_rate_limit_dependency_raises_429_with_retry_after():
     assert info.value.status_code == 429
     assert info.value.detail == {"error": "rate_limited", "message": "Too many requests; try again in a few seconds."}
     assert int(info.value.headers["Retry-After"]) >= 1
+
+
+def _request(forwarded, host="1.2.3.4"):
+    return SimpleNamespace(headers={"x-forwarded-for": forwarded}, client=SimpleNamespace(host=host))
+
+
+async def test_a_spoofed_forwarded_header_does_not_buy_a_fresh_bucket():
+    dependency = RateLimitDependency(TokenBucketLimiter(per_minute=1, clock=Clock()))
+    await dependency(_request("10.0.0.1"))
+    with pytest.raises(HTTPException) as info:
+        await dependency(_request("10.0.0.2"))
+    assert info.value.status_code == 429
+
+
+async def test_behind_a_trusted_proxy_the_forwarded_address_separates_clients():
+    dependency = RateLimitDependency(TokenBucketLimiter(per_minute=1, clock=Clock()), trust_forwarded=True)
+    await dependency(_request("10.0.0.1"))
+    await dependency(_request("10.0.0.2"))
+    with pytest.raises(HTTPException):
+        await dependency(_request("10.0.0.1"))
+
+
+async def test_the_router_dependency_uses_the_trust_setting(monkeypatch):
+    from agent import router as router_module
+    from agent.config import Settings
+
+    monkeypatch.setattr(router_module, "get_settings", lambda: Settings(_env_file=None, rate_limit_per_minute=1))
+    monkeypatch.setitem(router_module._state, "limiter", None)
+    router_module._state.pop("limiter")
+    try:
+        await router_module.rate_limit_dependency(_request("10.0.0.1"))
+        with pytest.raises(HTTPException):
+            await router_module.rate_limit_dependency(_request("10.0.0.2"))
+    finally:
+        router_module._state.pop("limiter", None)

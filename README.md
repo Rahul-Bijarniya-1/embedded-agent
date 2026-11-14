@@ -13,7 +13,7 @@ Built on the provided `embedded-agent` app (a FastAPI mock backend and a static 
 | **Explain** buttons with spoken audio (Dashboard: 3, Credit Details: 4) | `index.html`, `credit.html`, `POST /explain`, `POST /tts` | Done |
 | README: architecture, implementation, prompting, assumptions, production considerations | this file, plus `embedded-agent-be/README.md` and `embedded-agent-fe/README.md` | Done |
 
-Beyond the brief: a play button on every Ask and Summary answer, browser-voice fallback when Gemini speech fails, model-id fallback, rate limiting, caching, structured logs, 213 backend tests, 4 opt-in live tests, 27 frontend tests, and a 14-case grounding eval.
+Beyond the brief: a play button on every Ask and Summary answer, browser-voice fallback when Gemini speech fails, model-id fallback, rate limiting, caching, structured logs, 248 backend tests, 4 opt-in live tests, 27 frontend tests, and a 14-case grounding eval.
 
 ## 2. Quick start
 
@@ -40,7 +40,7 @@ Without a key the app still starts: the mock endpoints serve, `/health` reports 
 Checks (from `embedded-agent-be`, venv active):
 
 ```bash
-pytest -q                                   # 213 tests with a fake model: no network, no key
+pytest -q                                   # 248 tests with a fake model: no network, no key
 RUN_LIVE_TESTS=1 pytest -m live             # 4 tests against the real text and speech models
 python scripts/eval_grounding.py            # grounding eval against the running backend; exit code 1 on any FAIL
 node --test ../embedded-agent-fe/tests/*.test.mjs   # 27 tests of the audio engine (no packages needed)
@@ -144,7 +144,7 @@ embedded-agent-be/
 
 | Layer | What | How |
 |---|---|---|
-| Backend unit and API | schemas, money, context, prompts, cache, limiter, LLM and TTS clients, assistant, routes, eval checks | `pytest -q` with a scripted fake model: 213 tests, no network |
+| Backend unit and API | schemas, money, context, prompts, cache, limiter, LLM and TTS clients, assistant, routes, eval checks | `pytest -q` with a scripted fake model: 248 tests, no network |
 | Live | summary figure, cross-page decline, injection question, real WAV | `RUN_LIVE_TESTS=1 pytest -m live`, 4 tests |
 | Grounding eval | 14 questions with PASS or FAIL expectations against a running backend | `python scripts/eval_grounding.py`, exit code 1 on failure |
 | Audio engine | Gemini path, cache, stop, races, fallbacks, autoplay block, text cleaning | `node --test`, 27 tests that run the real `agent.js` against fake browser APIs |
@@ -270,7 +270,7 @@ Each item says what is **already in place** and what I would add **with more tim
 
 ### Edge cases
 
-*In place:* closed loans (no next due date or EMI, `closed_date` instead); malformed rows (amount `"1,200"`, negative amount, unknown type, missing merchant) answer `422` with a readable message; empty pages make the widget warn without a request; large histories (2000 rows accepted, facts over all of them, at most 500 rows in the prompt, truncation noted); question length, blank and control characters; model output wrapped in code fences or labels is cleaned; invalid JSON from Ask falls back to raw text with `scope: "unknown"`; an empty or blocked model response becomes `502 llm_blocked`; double clicks (buttons disabled while a request is in flight, one audio clip at a time, a late response never starts after Stop); the page changing between load and question (the payload is read at click time, so "Load More" rows are included).
+*In place:* closed loans (no next due date or EMI, `closed_date` instead); malformed rows (amount `"1,200"`, negative amount, `NaN` or infinity, unknown type, missing merchant) answer `422` with a readable message; empty pages make the widget warn without a request; large histories (2000 rows accepted, facts over all of them, at most 500 rows in the prompt, truncation noted); question length, blank and control characters; model output wrapped in code fences or labels is cleaned; invalid JSON from Ask falls back to raw text with `scope: "unknown"`; an empty or blocked model response becomes `502 llm_blocked`; double clicks (buttons disabled while a request is in flight, one audio clip at a time, a late response never starts after Stop); the page changing between load and question (the payload is read at click time, so "Load More" rows are included).
 
 *With more time:* tell the user when a long history was only partly loaded ("based on the 60 transactions loaded so far"); client-side time zone for relative dates; other locales and right-to-left text; stricter accessibility review of the panels; a facts-only answer for simple questions when the model is down (the facts already exist).
 
@@ -299,7 +299,7 @@ Each item says what is **already in place** and what I would add **with more tim
 
 *Data sent to Vertex:* the displayed data, as displayed, which includes the masked account number, the vehicle registration and a property address where the page shows them. Google's documentation for Vertex AI says it will not use customer data to train or fine-tune models without prior permission, that Gemini models cache inputs and outputs by default for up to 24 hours (switchable per project), and that prompts may be logged to detect abuse ([data governance](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/data-governance), read 2026-11-14). The location here is `global`, which means requests can be served from any region.
 
-*With more time:* authenticate the user and fetch their data on the server instead of trusting a posted payload (see decision 1); restrict CORS (`*` is the provided demo setting); Workload Identity instead of a key file, with the narrowest Vertex role; a regional endpoint and a data-processing agreement for residency; zero data retention where the terms allow; reversible tokenisation of account numbers and addresses before they leave the service; trust `X-Forwarded-For` only behind a known proxy.
+*With more time:* authenticate the user and fetch their data on the server instead of trusting a posted payload (see decision 1); restrict CORS (`*` is the provided demo setting); Workload Identity instead of a key file, with the narrowest Vertex role; a regional endpoint and a data-processing agreement for residency; zero data retention where the terms allow; reversible tokenisation of account numbers and addresses before they leave the service; cap request body size at the proxy (the validation caps apply after the body is parsed).
 
 ### Prompt injection
 
@@ -321,7 +321,7 @@ Each item says what is **already in place** and what I would add **with more tim
 
 ### Rate limiting
 
-*In place:* a token bucket per client (20 a minute by default, `RATE_LIMIT_PER_MINUTE`, `0` disables) on every AI and speech route, answering `429` with `Retry-After`; the page shows an amber message.
+*In place:* a token bucket per client (20 a minute by default, `RATE_LIMIT_PER_MINUTE`, `0` disables) on every AI and speech route, answering `429` with `Retry-After`; the page shows an amber message. A client is its peer address: `X-Forwarded-For` is ignored unless `TRUST_FORWARDED_FOR=1`, because anyone can send that header and a rotating value would otherwise buy a fresh bucket each time.
 
 *With more time:* quotas per authenticated user instead of per IP; a Redis-backed limiter shared across workers; a separate, smaller budget for speech, which is slower and costlier; a global concurrency cap; alerts on Vertex quota usage.
 
@@ -333,7 +333,7 @@ Each item says what is **already in place** and what I would add **with more tim
 
 ### Testing strategy
 
-*In place:* see the table in section 5. Fakes make the 213 backend tests deterministic and offline; four live tests and a 14-case eval check the real models; the audio engine's races (Stop while loading, a response arriving after Stop, a late "end" event from a cancelled utterance, blocked autoplay) are unit-tested; the eval's checks are themselves tested so it cannot pass vacuously.
+*In place:* see the table in section 5. Fakes make the 248 backend tests deterministic and offline; four live tests and a 14-case eval check the real models; the audio engine's races (Stop while loading, a response arriving after Stop, a late "end" event from a cancelled utterance, blocked autoplay) are unit-tested; the eval's checks are themselves tested so it cannot pass vacuously.
 
 *With more time:* Playwright end-to-end tests for the widget and panels; golden prompt snapshots; an LLM judge scoring faithfulness (every claim traceable to the page data) on a larger set; load tests for the limiter and cache; contract tests between page and API; CI running the unit suites on every push and the live eval nightly with an alert on regressions.
 
