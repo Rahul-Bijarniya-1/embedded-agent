@@ -174,3 +174,81 @@ def test_mock_get_endpoints_unchanged(client):
     assert len(client.get("/transactions?page=0").json()) == 20
     assert "score" in client.get("/credit/summary").json()
     assert client.get("/loans/details/LOAN001").json()["name"] == "Personal Loan"
+
+
+# --- Task 8: explain and speech ----------------------------------------------------------
+
+from agent.assistant import Assistant
+from agent.cache import TTLCache
+
+EXPLAIN = {"page": "Dashboard", "section": "credit-score", "section_text": "Credit Score 750 +12 points", "data": {"score": 750}}
+
+
+def test_explain_endpoint_returns_explanation_and_meta(client, fake_llm):
+    fake_llm.reply = "This section shows your score."
+    response = client.post("/explain", json=EXPLAIN)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["explanation"] == "This section shows your score."
+    assert body["meta"]["model"] == "fake-model"
+    assert body["meta"]["request_id"] == response.headers["X-Request-ID"]
+
+
+def test_explain_prompt_includes_section_text_and_registered_data(client, fake_llm):
+    client.post("/explain", json=EXPLAIN)
+    prompt = fake_llm.calls[0]["user"]
+    assert "<section_text>\nCredit Score 750 +12 points\n</section_text>" in prompt
+    assert '"score": 750' in prompt
+    assert 'Section: "credit-score"' in prompt
+
+
+def test_explain_endpoint_422_on_missing_section(client):
+    response = client.post("/explain", json={"page": "Dashboard", "section_text": "x"})
+    assert response.status_code == 422
+    assert response.json()["error"] == "invalid_request"
+    assert "section" in response.json()["message"]
+
+
+def test_tts_returns_wav_bytes_with_headers(client, fake_tts):
+    response = client.post("/tts", json={"text": "Hello"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/wav")
+    assert response.content[:4] == b"RIFF"
+    assert response.headers["X-Cache"] == "miss"
+    assert response.headers["X-TTS-Model"] == "fake-tts"
+    assert fake_tts.calls == ["Hello"]
+
+
+def test_tts_second_call_is_cache_hit(client, fake_tts):
+    first = client.post("/tts", json={"text": "Hello again"})
+    second = client.post("/tts", json={"text": "Hello again"})
+    assert second.headers["X-Cache"] == "hit"
+    assert second.content == first.content
+    assert fake_tts.calls == ["Hello again"]
+    assert client.get("/health").json()["tts"]["cache"]["hits"] == 1
+
+
+def test_tts_unavailable_returns_json_error(client, fake_llm):
+    client.app.dependency_overrides[router_module.get_assistant] = lambda: Assistant(fake_llm, TTLCache(maxsize=8, ttl_s=60))
+    response = client.post("/tts", json={"text": "Hello"})
+    assert response.status_code == 503
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["error"] == "llm_unavailable"
+
+
+def test_tts_error_from_model_maps_to_502(client, fake_tts):
+    fake_tts.error = LLMBlocked("no audio")
+    response = client.post("/tts", json={"text": "Hello"})
+    assert response.status_code == 502
+    assert response.json()["error"] == "llm_blocked"
+
+
+def test_tts_text_too_long_is_422(client):
+    response = client.post("/tts", json={"text": "a" * 2001})
+    assert response.status_code == 422
+
+
+def test_explain_and_tts_are_rate_limited(client, fake_llm):
+    client.app.dependency_overrides[router_module.rate_limit_dependency] = RateLimitDependency(TokenBucketLimiter(per_minute=1))
+    assert client.post("/explain", json=EXPLAIN).status_code == 200
+    assert client.post("/tts", json={"text": "Hello"}).status_code == 429

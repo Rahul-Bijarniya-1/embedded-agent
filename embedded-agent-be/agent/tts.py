@@ -55,6 +55,7 @@ class GeminiTTS(GeminiBase):
             location=settings.tts_location,
             timeout_s=settings.tts_timeout_s,
         )
+        self.voice = settings.tts_voice
 
     async def synthesize(self, text: str) -> TTSResult:
         async def attempt(model: str) -> TTSResult:
@@ -90,6 +91,7 @@ class FakeTTS:
         self.error = error
         self.calls: list[str] = []
         self.active_model = "fake-tts"
+        self.voice = "fake-voice"
         self.dead_models: set[str] = set()
 
     async def synthesize(self, text: str) -> TTSResult:

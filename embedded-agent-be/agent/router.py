@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from .assistant import Assistant
 from .cache import TTLCache
@@ -18,11 +18,14 @@ from .prompts import PROMPT_VERSION
 from .schemas import (
     AnswerResponse,
     ErrorResponse,
+    ExplainRequest,
+    ExplainResponse,
     LoanAskRequest,
     LoanSummarizeRequest,
     SummaryResponse,
     TransactionsAskRequest,
     TransactionsSummarizeRequest,
+    TtsRequest,
 )
 from .tts import GeminiTTS
 
@@ -85,6 +88,26 @@ async def loans_ask(payload: LoanAskRequest, assistant: Assistant = Depends(get_
 @router.post("/loans/summarize", response_model=SummaryResponse, **AI_ROUTE)
 async def loans_summarize(payload: LoanSummarizeRequest, assistant: Assistant = Depends(get_assistant)) -> SummaryResponse:
     return await assistant.summarize_loan(payload, request_id=request_id_var.get(""))
+
+
+@router.post("/explain", response_model=ExplainResponse, **AI_ROUTE)
+async def explain(payload: ExplainRequest, assistant: Assistant = Depends(get_assistant)) -> ExplainResponse:
+    return await assistant.explain(payload, request_id=request_id_var.get(""))
+
+
+@router.post(
+    "/tts",
+    dependencies=[Depends(rate_limit_dependency)],
+    responses={**ERROR_RESPONSES, 200: {"content": {"audio/wav": {}}, "description": "WAV audio"}},
+    response_class=Response,
+)
+async def tts(payload: TtsRequest, assistant: Assistant = Depends(get_assistant)) -> Response:
+    wav, model, cached = await assistant.synthesize(payload, request_id=request_id_var.get(""))
+    return Response(
+        content=wav,
+        media_type="audio/wav",
+        headers={"X-Cache": "hit" if cached else "miss", "X-TTS-Model": model, "Cache-Control": "no-store"},
+    )
 
 
 def _assistant_or_error(request: Request) -> tuple[Assistant | None, str | None]:

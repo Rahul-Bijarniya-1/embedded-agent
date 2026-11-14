@@ -10,8 +10,8 @@ from datetime import date
 from pydantic import ValidationError
 
 from .cache import TTLCache, cache_key
-from .context import PageContext, build_loan_context, build_transactions_context
-from .llm import LLM, LLMError
+from .context import PageContext, build_loan_context, build_section_context, build_transactions_context
+from .llm import LLM, LLMError, LLMUnavailable
 from .observability import log_event
 from .prompts import (
     GENERATION_PARAMS,
@@ -24,6 +24,8 @@ from .prompts import (
 )
 from .schemas import (
     AnswerResponse,
+    ExplainRequest,
+    ExplainResponse,
     LoanAskRequest,
     LoanSummarizeRequest,
     Meta,
@@ -31,6 +33,7 @@ from .schemas import (
     SummaryResponse,
     TransactionsAskRequest,
     TransactionsSummarizeRequest,
+    TtsRequest,
 )
 from .tts import TTS
 
@@ -116,6 +119,54 @@ class Assistant:
     async def summarize_loan(self, request: LoanSummarizeRequest, request_id: str = "") -> SummaryResponse:
         context = build_loan_context(request.loan_data, locale=request.locale, today=self._today())
         return await self._summarize(context, request_id)
+
+    async def explain(self, request: ExplainRequest, request_id: str = "") -> ExplainResponse:
+        context = build_section_context(
+            request.page, request.section, request.section_text, request.data,
+            locale=request.locale, today=self._today(),
+        )
+        text, _, meta = await self._generate(context, "explain", None, request_id)
+        return ExplainResponse(explanation=text, meta=meta)
+
+    async def synthesize(self, request: TtsRequest, request_id: str = "") -> tuple[bytes, str, bool]:
+        """Return (wav bytes, model id, served_from_cache) for the given text."""
+        if self.tts is None:
+            raise LLMUnavailable("Text-to-speech is not configured")
+        started = self._clock()
+        voice = getattr(self.tts, "voice", "")
+        key = cache_key("tts", request.text, self.tts.active_model, voice)
+        cached = self.tts_cache.get(key)
+        if cached is not None:
+            wav, model = cached
+            cache_hit = True
+        else:
+            cache_hit = False
+            try:
+                result = await self.tts.synthesize(request.text)
+            except LLMError as exc:
+                log_event(
+                    "tts_request",
+                    text_chars=len(request.text),
+                    model=self.tts.active_model,
+                    latency_ms=int((self._clock() - started) * 1000),
+                    cache_hit=False,
+                    outcome=type(exc).__name__,
+                    error=str(exc)[:200],
+                )
+                raise
+            wav, model = result.wav, result.model
+            self.tts_cache.set(key, (wav, model))
+        latency_ms = int((self._clock() - started) * 1000)
+        log_event(
+            "tts_request",
+            text_chars=len(request.text),
+            model=model,
+            latency_ms=latency_ms,
+            cache_hit=cache_hit,
+            bytes=len(wav),
+            outcome="ok",
+        )
+        return wav, model, cache_hit
 
     # --- internals ---------------------------------------------------------------------
 

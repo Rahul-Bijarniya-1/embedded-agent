@@ -125,3 +125,68 @@ async def test_ai_request_log_has_fields(assistant, fake_llm, caplog):
     assert event["cache_hit"] is False
     assert event["scope"] == "in_page"
     assert event["outcome"] == "ok"
+
+
+# --- Task 8: explain and speech ----------------------------------------------------------
+
+import pytest
+
+from agent.assistant import Assistant
+from agent.cache import TTLCache
+from agent.llm import LLMUnavailable
+from agent.schemas import ExplainRequest, TtsRequest
+
+
+async def test_explain_builds_section_prompt_and_returns_text(assistant, fake_llm):
+    fake_llm.reply = "Explanation: This section shows your credit score of 750."
+    request = ExplainRequest(
+        page="Dashboard", section="credit-score", section_text="Credit Score 750 +12 points",
+        data={"score": 750, "change": 12}, locale="en-IN",
+    )
+    result = await assistant.explain(request, request_id="r")
+    call = fake_llm.calls[0]
+    assert "<section_text>\nCredit Score 750 +12 points\n</section_text>" in call["user"]
+    assert '"score": 750' in call["user"]
+    assert call["response_schema"] is None
+    assert call["max_output_tokens"] == GENERATION_PARAMS["explain"]["max_output_tokens"]
+    assert "read aloud" in call["system"]
+    assert result.explanation == "This section shows your credit score of 750."
+    assert result.meta.model == "fake-model"
+    assert result.meta.request_id == "r"
+
+
+async def test_explain_repeat_is_cache_hit(assistant, fake_llm):
+    request = ExplainRequest(page="Dashboard", section="top-transactions", section_text="Top Transactions", data=[{"amount": 1}])
+    first = await assistant.explain(request, request_id="a")
+    second = await assistant.explain(request, request_id="b")
+    assert len(fake_llm.calls) == 1
+    assert first.meta.cached is False
+    assert second.meta.cached is True
+
+
+async def test_synthesize_returns_wav_and_caches(assistant, fake_tts):
+    wav, model, cached = await assistant.synthesize(TtsRequest(text="Hello there"), request_id="r")
+    assert wav[:4] == b"RIFF"
+    assert model == "fake-tts"
+    assert cached is False
+    wav2, model2, cached2 = await assistant.synthesize(TtsRequest(text="Hello there"), request_id="r")
+    assert cached2 is True
+    assert wav2 == wav
+    assert fake_tts.calls == ["Hello there"]
+
+
+async def test_synthesize_without_tts_is_unavailable(fake_llm):
+    bare = Assistant(fake_llm, TTLCache(maxsize=8, ttl_s=60))
+    with pytest.raises(LLMUnavailable):
+        await bare.synthesize(TtsRequest(text="x"), request_id="r")
+
+
+async def test_tts_request_is_logged(assistant, fake_tts, caplog):
+    with caplog.at_level(logging.INFO, logger="agent"):
+        await assistant.synthesize(TtsRequest(text="Hello there"), request_id="r")
+    event = [r.event_fields for r in caplog.records if r.getMessage() == "tts_request"][-1]
+    assert event["text_chars"] == 11
+    assert event["model"] == "fake-tts"
+    assert event["cache_hit"] is False
+    assert event["outcome"] == "ok"
+    assert event["latency_ms"] >= 0
