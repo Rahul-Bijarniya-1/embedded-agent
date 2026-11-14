@@ -4,12 +4,13 @@
   <title>Dashboard</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="config.js"></script>
+  <script src="agent.js"></script>
 </head>
 
 <body>
 <h1>Financial Dashboard</h1>
 
-<div class="section">
+<div class="section" data-section="credit-score">
   <div class="header">
     <h2>Credit Score</h2>
     <button class="audio-btn">🔊 Explain</button>
@@ -24,7 +25,7 @@
   <a class="link" href="credit.html">View details →</a>
 </div>
 
-<div class="section">
+<div class="section" data-section="top-transactions">
   <div class="header">
     <h2>Top Transactions</h2>
     <button class="audio-btn">🔊 Explain</button>
@@ -33,7 +34,7 @@
   <a class="link" href="transactions.html">View 6 months →</a>
 </div>
 
-<div class="section">
+<div class="section" data-section="top-active-loans">
   <div class="header">
     <h2>Top Active Loans</h2>
     <button class="audio-btn">🔊 Explain</button>
@@ -56,6 +57,11 @@ async function load() {
   const now = new Date();
   const hoursDiff = Math.floor((now - refreshDate) / (1000 * 60 * 60));
   document.getElementById("last-refreshed").innerText = `Last refreshed: ${hoursDiff} hours ago`;
+  Agent.register("credit-score", {
+    score: credit.score,
+    change_from_last_month: credit.change,
+    hours_since_last_refresh: hoursDiff
+  });
 
   // Load top transactions with enhanced data
   const txns = await fetch(API_BASE + "/transactions/top").then(r=>r.json());
@@ -73,12 +79,21 @@ async function load() {
       <td style="color: ${typeColor};">${typeSymbol}₹${x.amount}</td>
     </tr>`;
   });
+  Agent.register("top-transactions", {
+    transactions: txns.map(x => ({ date: x.date, category: x.category, type: x.type, amount: x.amount }))
+  });
 
   // Load top active loans with L1 data
   const loans = await fetch(API_BASE + "/loans/summary").then(r=>r.json());
   const loanCards = document.getElementById("loanCards");
+  const shownLoans = [];
   loans.forEach(loan => {
     const progress = ((loan.original_amount - loan.outstanding) / loan.original_amount * 100).toFixed(1);
+    shownLoans.push({
+      name: loan.name, type: loan.type, outstanding: loan.outstanding, emi: loan.emi,
+      interest_rate: loan.interest_rate, next_due_date: loan.next_due_date,
+      percent_paid: Number(progress), tenure_remaining: loan.tenure_remaining
+    });
     loanCards.innerHTML += `
       <div style="border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; margin-bottom: 15px; background: #fafafa;">
         <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
@@ -118,13 +133,14 @@ async function load() {
       </div>
     `;
   });
+  Agent.register("top-active-loans", { loans: shownLoans });
 }
 
 load();
-</script>
 
-<!-- Candidate adds agent here -->
-<!-- <script src="agent.js"></script> -->
+// Explain buttons: agent.js wires every [data-section] above; load() registers what each one shows.
+Agent.mountExplain({ page: "Dashboard" });
+</script>
 
 </body>
 </html>

@@ -29,6 +29,23 @@
     .agent-badge--out { background: #fef3c7; color: #92400e; }
     .agent-badge--term { background: #f1f5f9; color: #475569; }
     .agent-pill { background: #dbeafe; color: #1e40af; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+    .agent-note { font-size: 12px; color: #64748b; }
+    .audio-btn[disabled] { opacity: 0.6; cursor: wait; transform: none; }
+    .agent-explain { margin: 0 0 15px; padding: 14px 16px; background: #f5f3ff; border-left: 4px solid #8b5cf6; border-radius: 8px; }
+    .agent-explain--loading { background: #f1f5f9; border-left-color: #94a3b8; }
+    .agent-explain--warning { background: #fef3c7; border-left-color: #f59e0b; }
+    .agent-explain--error { background: #fee2e2; border-left-color: #dc2626; }
+    .agent-explain__body { color: #1e293b; font-size: 14px; line-height: 1.6; }
+    .agent-explain--loading .agent-explain__body { color: #64748b; }
+    .agent-explain--warning .agent-explain__body { color: #92400e; }
+    .agent-explain--error .agent-explain__body { color: #991b1b; }
+    .agent-explain__body p { margin: 0 0 8px; }
+    .agent-explain__body p:last-child { margin-bottom: 0; }
+    .agent-explain__controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: #64748b; }
+    .agent-explain__controls button { margin: 0; padding: 4px 10px; font-size: 12px; }
+    .agent-explain--loading .agent-explain__controls { display: none; }
+    .agent-explain--warning .agent-explain__replay, .agent-explain--error .agent-explain__replay { display: none; }
+    .agent-explain__meta { margin-left: auto; color: #94a3b8; }
   `;
 
   function injectStyles() {
@@ -168,12 +185,10 @@
     if (meta && typeof meta.latency_ms === 'number') bits.push(meta.latency_ms + ' ms');
     if (meta && meta.cached) bits.push('cached');
     footer.appendChild(el('span', null, bits.join(' · ')));
-    if (window.Agent && window.Agent.audio) {
-      const play = el('button', 'agent-play', '🔊 Play');
-      play.type = 'button';
-      play.addEventListener('click', () => window.Agent.audio.toggle(text, { button: play }));
-      footer.appendChild(play);
-    }
+    const play = el('button', 'agent-play', '🔊 Play');
+    play.type = 'button';
+    play.addEventListener('click', () => toggleAudio(text, { button: play }));
+    footer.appendChild(play);
     node.appendChild(footer);
     return node;
   }
@@ -182,6 +197,7 @@
 
   function mountChat(container, config) {
     injectStyles();
+    warmUpVoices();
     container.classList.add('agent-chat');
     container.textContent = '';
 
@@ -200,7 +216,7 @@
     const bar = el('div', 'agent-results__bar');
     bar.appendChild(el('span', null, 'Responses (newest first)'));
     const clear = el('a', null, 'Clear');
-    clear.addEventListener('click', () => { list.textContent = ''; results.style.display = 'none'; });
+    clear.addEventListener('click', () => { stopAudio(); list.textContent = ''; results.style.display = 'none'; });
     bar.appendChild(clear);
     const list = el('div');
     results.appendChild(bar);
@@ -265,5 +281,393 @@
     return { ask: ask, summarize: () => run('Summary', config.summarizePath, {}) };
   }
 
-  window.Agent = { call: call, render: render, setBusy: setBusy, mountChat: mountChat, locale: locale };
+  // --- Section data and cache keys --------------------------------------------------------
+
+  const registry = new Map();
+
+  // Pages call this after loading a section with exactly the fields that section displays.
+  function register(sectionId, data) {
+    registry.set(sectionId, data);
+  }
+
+  function registered(sectionId) {
+    return registry.get(sectionId);
+  }
+
+  function hashString(text) {
+    // FNV-1a, 32 bit: a short stable cache key, not a security boundary.
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function dataKey(sectionId, data) {
+    return sectionId + ':' + hashString(JSON.stringify(data === undefined ? null : data));
+  }
+
+  // --- Audio ----------------------------------------------------------------------------------
+  // One clip at a time. Gemini speech (POST /tts) is preferred; when it fails the browser's own
+  // voice reads the same text and a "(browser voice)" note says so.
+
+  const MAX_SPEECH_CHARS = 2000;      // same limit as the backend's /tts
+  const MAX_CACHED_CLIPS = 12;
+  const LABEL_LOADING = '⏳ Loading audio…';
+  const LABEL_STOP = '⏹ Stop';
+
+  const clips = new Map();            // speakable text -> audio Blob, so a replay needs no request
+  const notes = new WeakMap();        // button -> the note element next to it
+  let element = null;                 // the one shared HTMLAudioElement
+  let active = null;                  // the clip being loaded or played
+  let lastClipId = 0;
+
+  // What is read aloud: no markdown markers, every line a sentence, cut at a sentence end.
+  function toSpeakable(text) {
+    const joined = String(text || '')
+      .replace(/\*\*/g, '')
+      .split(/\r?\n/)
+      .map((line) => line.trim().replace(/^[-*•]\s+/, '').trim())
+      .filter(Boolean)
+      .map((line) => (/[.!?:;…]$/.test(line) ? line : line + '.'))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (joined.length <= MAX_SPEECH_CHARS) return joined;
+    const cut = joined.slice(0, MAX_SPEECH_CHARS);
+    const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+    return end > 0 ? cut.slice(0, end + 1) : cut;
+  }
+
+  function pickVoice(voices, language) {
+    const normalise = (tag) => String(tag || '').toLowerCase().replace('_', '-');
+    const wanted = normalise(language);
+    const base = wanted.split('-')[0];
+    let sameLanguage = null;
+    for (const voice of voices || []) {
+      const tag = normalise(voice.lang);
+      if (tag === wanted) return voice;
+      if (!sameLanguage && base && tag.split('-')[0] === base) sameLanguage = voice;
+    }
+    return sameLanguage;
+  }
+
+  // Chrome returns no voices on the first getVoices() call and loads them in the background, so the
+  // widgets ask once at mount; by the time a fallback needs a voice for the page language the list is there.
+  function warmUpVoices() {
+    if (window.speechSynthesis) window.speechSynthesis.getVoices();
+  }
+
+  function idleLabel(button) {
+    if (button.dataset.idleLabel === undefined) button.dataset.idleLabel = button.textContent;
+    return button.dataset.idleLabel;
+  }
+
+  function noteFor(button) {
+    if (!button) return { textContent: '' };
+    if (!notes.has(button)) {
+      const note = el('span', 'agent-note');
+      button.insertAdjacentElement('afterend', note);
+      notes.set(button, note);
+    }
+    return notes.get(button);
+  }
+
+  function remember(text, blob) {
+    clips.delete(text);
+    clips.set(text, blob);
+    while (clips.size > MAX_CACHED_CLIPS) clips.delete(clips.keys().next().value);
+  }
+
+  function paint(clip, status) {
+    clip.status = status;
+    clip.buttons.forEach((button) => { button.textContent = status === 'loading' ? LABEL_LOADING : LABEL_STOP; });
+  }
+
+  function releaseAudio(clip) {
+    if (element) {
+      element.onended = null;
+      element.onerror = null;
+      element.pause();
+      element.removeAttribute('src');
+      element.load();
+    }
+    if (clip.url) {
+      URL.revokeObjectURL(clip.url);
+      clip.url = null;
+    }
+  }
+
+  // Ends a clip exactly once. Events from a clip that was already replaced or stopped (a late
+  // "end" after speechSynthesis.cancel(), a response that arrives after Stop) find it gone and do nothing.
+  function settle(clipId, outcome) {
+    if (!active || active.id !== clipId) return;
+    const clip = active;
+    active = null;
+    releaseAudio(clip);
+    if (clip.via === 'browser' && window.speechSynthesis) window.speechSynthesis.cancel();
+    clip.buttons.forEach((button) => { button.textContent = idleLabel(button); });
+    clip.resolve(outcome);
+  }
+
+  function speakInBrowser(clip) {
+    const synth = window.speechSynthesis;
+    if (!synth || typeof SpeechSynthesisUtterance === 'undefined') {
+      clip.note.textContent = 'Audio is unavailable right now.';
+      settle(clip.id, 'failed');
+      return;
+    }
+    releaseAudio(clip);
+    const unavailable = () => {
+      if (active !== clip) return;
+      clip.note.textContent = 'Audio is unavailable right now.';
+      settle(clip.id, 'failed');
+    };
+    try {
+      const utterance = new SpeechSynthesisUtterance(clip.text);
+      utterance.lang = clip.locale;
+      const voice = pickVoice(synth.getVoices(), clip.locale);
+      if (voice) utterance.voice = voice;
+      utterance.onend = () => settle(clip.id, 'spoken');
+      utterance.onerror = unavailable;
+      clip.via = 'browser';
+      clip.note.textContent = '(browser voice)';
+      paint(clip, 'playing');
+      synth.speak(utterance);
+    } catch (error) {
+      unavailable();
+    }
+  }
+
+  function playBlob(clip, blob) {
+    const audio = element || (element = new Audio());
+    clip.via = 'gemini';
+    clip.url = URL.createObjectURL(blob);
+    audio.onended = () => settle(clip.id, 'played');
+    audio.onerror = () => { if (active === clip) speakInBrowser(clip); };
+    audio.src = clip.url;
+    paint(clip, 'playing');
+    audio.play().then(null, (error) => {
+      if (active !== clip) return;
+      if (error && error.name === 'NotAllowedError') {
+        // The audio is fine, the browser wants a fresh click: it stays cached for the next one.
+        clip.note.textContent = 'Your browser blocked autoplay. Press play to listen.';
+        settle(clip.id, 'blocked');
+      } else {
+        speakInBrowser(clip);
+      }
+    });
+  }
+
+  async function loadClip(clip) {
+    let blob = clips.get(clip.text);
+    if (!blob) {
+      const timeoutMs = typeof TTS_TIMEOUT_MS !== 'undefined' ? TTS_TIMEOUT_MS : 20000;
+      const result = await call('/tts', { text: clip.text, locale: clip.locale }, { timeoutMs: timeoutMs, expect: 'blob' });
+      if (result.ok) remember(clip.text, result.data);   // keep it even if the user already pressed Stop
+      if (active !== clip) return;
+      blob = result.ok ? result.data : null;
+    }
+    if (blob) playBlob(clip, blob);
+    else speakInBrowser(clip);
+  }
+
+  // play(text, { button: Element | Element[], note?: Element, locale? }) -> Promise<outcome>
+  // outcome: 'played' | 'spoken' (browser voice) | 'stopped' | 'blocked' | 'failed'
+  function playAudio(text, options) {
+    options = options || {};
+    stopAudio();
+    const buttons = [].concat(options.button || []).filter(Boolean);
+    buttons.forEach(idleLabel);
+    const note = options.note || noteFor(buttons[0]);
+    note.textContent = '';
+    const speakable = toSpeakable(text);
+    if (!speakable) {
+      note.textContent = 'Nothing to read aloud.';
+      return Promise.resolve('failed');
+    }
+    return new Promise((resolve) => {
+      const clip = {
+        id: ++lastClipId, buttons: buttons, note: note, text: speakable,
+        locale: options.locale || locale(), status: 'loading', via: null, url: null, resolve: resolve,
+      };
+      active = clip;
+      paint(clip, 'loading');
+      loadClip(clip).catch(() => { if (active === clip) speakInBrowser(clip); });
+    });
+  }
+
+  function stopAudio() {
+    if (active) settle(active.id, 'stopped');
+  }
+
+  function isActive(button) {
+    return !!active && active.buttons.indexOf(button) !== -1;
+  }
+
+  function toggleAudio(text, options) {
+    const first = [].concat((options && options.button) || [])[0];
+    if (first && isActive(first)) {
+      stopAudio();
+      return Promise.resolve('stopped');
+    }
+    return playAudio(text, options);
+  }
+
+  function audioState() {
+    return { status: active ? active.status : 'idle', via: active ? active.via : null };
+  }
+
+  const audio = { play: playAudio, stop: stopAudio, toggle: toggleAudio, isActive: isActive, state: audioState };
+
+  // --- Explain panels -------------------------------------------------------------------------
+
+  const explanations = new Map();   // dataKey(section, data) -> { text, meta }: reopening a section costs no request
+  let lastExplainClick = 0;         // the newest click wins the speaker; earlier ones still show their text
+
+  // What the user reads in the section, minus the Explain controls and any open panel.
+  function sectionText(section) {
+    const clone = section.cloneNode(true);
+    clone.querySelectorAll('button, .agent-explain, script, style').forEach((node) => node.remove());
+    // innerText only gets line breaks right on a laid-out element, so read it from an off-screen copy.
+    clone.style.cssText = 'position:absolute;left:-99999px;top:0;width:' + section.offsetWidth + 'px;pointer-events:none;';
+    clone.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(clone);
+    const text = clone.innerText;
+    clone.remove();
+    return text.replace(/\n{3,}/g, '\n\n').trim().slice(0, 4000);
+  }
+
+  function mountSection(section, config) {
+    const button = section.querySelector('.audio-btn');
+    if (!button || section.dataset.agentMounted) return;
+    section.dataset.agentMounted = '1';
+    const sectionId = section.dataset.section;
+    idleLabel(button);                // remember "🔊 Explain" before any state change
+    let panel = null;
+    let busy = false;
+
+    function ensurePanel() {
+      if (panel) return panel;
+      const root = el('div', 'agent-explain');
+      root.setAttribute('role', 'region');
+      root.setAttribute('aria-live', 'polite');
+      const body = el('div', 'agent-explain__body');
+      const controls = el('div', 'agent-explain__controls');
+      const replay = el('button', 'agent-explain__replay', '🔊 Replay');
+      const refresh = el('button', 'agent-explain__refresh', '↻ Refresh');
+      const close = el('button', 'agent-explain__close', '✕ Close');
+      [replay, refresh, close].forEach((control) => { control.type = 'button'; controls.appendChild(control); });
+      const note = el('span', 'agent-note');
+      const meta = el('span', 'agent-explain__meta');
+      controls.appendChild(note);
+      controls.appendChild(meta);
+      root.appendChild(body);
+      root.appendChild(controls);
+      const header = section.querySelector('.header');
+      if (header) header.insertAdjacentElement('afterend', root);
+      else section.insertBefore(root, section.firstChild);
+      idleLabel(replay);
+      panel = { root: root, body: body, replay: replay, note: note, meta: meta, text: '' };
+      replay.addEventListener('click', () => {
+        if (panel.text) toggleAudio(panel.text, { button: [button, replay], note: note });
+      });
+      refresh.addEventListener('click', () => explain(true));
+      close.addEventListener('click', closePanel);
+      return panel;
+    }
+
+    function closePanel() {
+      if (isActive(button)) stopAudio();
+      if (panel) {
+        panel.root.remove();
+        panel = null;
+      }
+    }
+
+    function showMessage(kind, message) {
+      const view = ensurePanel();
+      view.root.className = 'agent-explain agent-explain--' + kind;
+      view.body.textContent = message;
+      view.text = '';
+      view.note.textContent = '';
+      view.meta.textContent = '';
+    }
+
+    function showExplanation(entry) {
+      const view = ensurePanel();
+      view.root.className = 'agent-explain';
+      render(view.body, entry.text);
+      view.text = entry.text;
+      view.note.textContent = '';
+      const meta = entry.meta || {};
+      view.meta.textContent = [meta.model, typeof meta.latency_ms === 'number' ? meta.latency_ms + ' ms' : '', meta.cached ? 'cached' : '']
+        .filter(Boolean).join(' · ');
+      return view;
+    }
+
+    async function explain(refresh) {
+      if (busy) return;
+      const turn = ++lastExplainClick;
+      stopAudio();                                   // a new request takes over the speaker
+      const data = registered(sectionId);
+      if (data === undefined) {
+        showMessage('warning', 'This section is still loading. Try again in a moment.');
+        return;
+      }
+      const key = dataKey(sectionId, data);
+      let entry = refresh ? null : explanations.get(key);
+      if (!entry) {
+        busy = true;
+        button.disabled = true;
+        button.textContent = '⏳ Explaining…';
+        showMessage('loading', '⏳ Generating explanation…');
+        let result;
+        try {
+          const body = { page: config.page, section: sectionId, section_text: sectionText(section), data: data, locale: locale() };
+          if (refresh) body.refresh = true;
+          result = await call('/explain', body);
+        } finally {
+          busy = false;
+          button.disabled = false;
+          button.textContent = idleLabel(button);
+        }
+        if (!result.ok) {
+          showMessage(result.status === 429 ? 'warning' : 'error', result.message);
+          return;
+        }
+        entry = { text: result.data.explanation, meta: result.data.meta };
+        explanations.set(key, entry);
+      }
+      const view = showExplanation(entry);
+      if (turn === lastExplainClick) playAudio(entry.text, { button: [button, view.replay], note: view.note });
+    }
+
+    button.addEventListener('click', () => {
+      if (isActive(button)) {          // click while it is loading or playing: stop
+        stopAudio();
+        return;
+      }
+      explain(false);
+    });
+  }
+
+  // Wires every [data-section] .section on the page; the page registers each section's data separately.
+  function mountExplain(config) {
+    config = config || {};
+    const mountAll = () => {
+      injectStyles();
+      warmUpVoices();
+      document.querySelectorAll('.section[data-section]').forEach((section) => mountSection(section, config));
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountAll);
+    else mountAll();
+  }
+
+  window.Agent = {
+    call: call, render: render, setBusy: setBusy, mountChat: mountChat, locale: locale,
+    register: register, registered: registered, dataKey: dataKey, toSpeakable: toSpeakable, audio: audio,
+    mountExplain: mountExplain,
+  };
 })();
