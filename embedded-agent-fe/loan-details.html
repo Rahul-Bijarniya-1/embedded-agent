@@ -4,51 +4,21 @@
   <title>Loan Details</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="config.js"></script>
+  <script src="agent.js"></script>
 </head>
 
 <body>
 <a class="link" href="index.html">← Back to Dashboard</a>
 <h1 id="loan-title">Loan Details</h1>
 
-<!-- AI Assistant Section - Candidate Implementation Task -->
+<!-- AI Loan Assistant: grounded in the loan displayed on this page -->
 <div class="section" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 2px solid #3b82f6;">
   <div class="header">
     <h2 style="color: #1e40af;">💬 AI Loan Assistant</h2>
-    <span style="background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold;">TODO: Implement</span>
+    <span class="agent-pill">Powered by Gemini</span>
   </div>
-  <p style="margin: 10px 0; color: #475569;">Ask questions about this loan and get instant answers based on the loan data.</p>
-  
-  <div style="margin-top: 15px;">
-    <textarea 
-      id="user-question" 
-      placeholder="e.g., What is my total interest paid? When is my next payment due? Can you summarize this loan?"
-      style="width: 100%; padding: 12px; border: 2px solid #cbd5e1; border-radius: 8px; font-size: 14px; font-family: inherit; resize: vertical; min-height: 80px;"
-    ></textarea>
-    
-    <div style="display: flex; gap: 10px; margin-top: 10px;">
-      <button onclick="askQuestion()" style="flex: 1; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);">
-        Ask Question
-      </button>
-      <button onclick="getSummary()" style="flex: 1; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">
-        Get Summary
-      </button>
-    </div>
-  </div>
-  
-  <div id="ai-response" style="margin-top: 20px; padding: 15px; background: white; border-radius: 8px; border-left: 4px solid #3b82f6; display: none;">
-    <h3 style="margin: 0 0 10px 0; color: #1e40af; font-size: 16px;">Response:</h3>
-    <div id="ai-response-text" style="color: #334155; line-height: 1.6;"></div>
-  </div>
-  
-  <div style="margin-top: 15px; padding: 12px; background: #fef3c7; border-radius: 6px; border-left: 4px solid #f59e0b;">
-    <p style="margin: 0; font-size: 13px; color: #92400e;">
-      <strong>📝 Interview Task:</strong> Implement the backend API endpoints for this feature:
-    </p>
-    <ul style="margin: 10px 0 0 0; padding-left: 20px; font-size: 13px; color: #92400e;">
-      <li><code>POST /loans/ask</code> - Answer questions about loan data</li>
-      <li><code>POST /loans/summarize</code> - Generate loan summary</li>
-    </ul>
-  </div>
+  <p style="margin: 10px 0; color: #475569;">Ask about this loan, or get a summary. Answers use only the details and payment history shown on this page.</p>
+  <div id="loan-chat"></div>
 </div>
 
 <div class="section">
@@ -307,148 +277,21 @@ async function loadLoanDetails() {
 
 loadLoanDetails();
 
-// AI Assistant Functions - Candidate Implementation Task
+// AI assistant: the widget lives in agent.js; this page only says where its data is.
 let currentLoanData = null;
 
-// Store loan data globally for AI assistant
 function storeLoanData(loan) {
   currentLoanData = loan;
 }
 
-async function askQuestion() {
-  const question = document.getElementById('user-question').value.trim();
-  const responseDiv = document.getElementById('ai-response');
-  const responseText = document.getElementById('ai-response-text');
-  
-  if (!question) {
-    alert('Please enter a question');
-    return;
-  }
-  
-  // Show loading state
-  responseDiv.style.display = 'block';
-  responseText.innerHTML = '<p style="color: #64748b;">🤔 Thinking...</p>';
-  
-  try {
-    // Call the backend API endpoint
-    const response = await fetch(API_BASE + '/loans/ask', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        loan_id: currentLoanData?.id,
-        question: question,
-        loan_data: currentLoanData
-      })
-    });
-    
-    const data = await response.json();
-    
-    // Check if the endpoint is implemented
-    if (data.error === "Not implemented") {
-      // Show TODO message
-      responseText.innerHTML = `
-        <div style="padding: 15px; background: #fef3c7; border-radius: 6px; border-left: 4px solid #f59e0b;">
-          <p style="margin: 0 0 10px 0; color: #92400e; font-weight: bold;">⚠️ ${data.message}</p>
-          <p style="margin: 0; color: #92400e; font-size: 14px;">
-            ${data.hint}
-          </p>
-          <p style="margin: 10px 0 0 0; color: #92400e; font-size: 13px;">
-            <strong>Your question:</strong> "${question}"
-          </p>
-          <p style="margin: 10px 0 0 0; color: #92400e; font-size: 13px;">
-            <strong>Expected behavior:</strong> Parse the question, extract relevant data from the loan object, 
-            and return a natural language answer in the format: <code>{ "answer": "..." }</code>
-          </p>
-        </div>
-      `;
-    } else if (data.answer) {
-      // Show the actual answer from implemented endpoint
-      responseText.innerHTML = `<p style="font-size: 15px;">${data.answer}</p>`;
-    } else {
-      throw new Error('Invalid response format');
-    }
-    
-  } catch (error) {
-    // Network or other errors
-    responseText.innerHTML = `
-      <div style="padding: 15px; background: #fee2e2; border-radius: 6px; border-left: 4px solid #dc2626;">
-        <p style="margin: 0 0 10px 0; color: #991b1b; font-weight: bold;">❌ Error</p>
-        <p style="margin: 0; color: #991b1b; font-size: 14px;">
-          ${error.message || 'Failed to connect to the API. Make sure the backend is running.'}
-        </p>
-      </div>
-    `;
-  }
-}
-
-async function getSummary() {
-  const responseDiv = document.getElementById('ai-response');
-  const responseText = document.getElementById('ai-response-text');
-  
-  // Show loading state
-  responseDiv.style.display = 'block';
-  responseText.innerHTML = '<p style="color: #64748b;">📊 Generating summary...</p>';
-  
-  try {
-    // Call the backend API endpoint
-    const response = await fetch(API_BASE + '/loans/summarize', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        loan_id: currentLoanData?.id,
-        loan_data: currentLoanData
-      })
-    });
-    
-    const data = await response.json();
-    
-    // Check if the endpoint is implemented
-    if (data.error === "Not implemented") {
-      // Show TODO message
-      responseText.innerHTML = `
-        <div style="padding: 15px; background: #fef3c7; border-radius: 6px; border-left: 4px solid #f59e0b;">
-          <p style="margin: 0 0 10px 0; color: #92400e; font-weight: bold;">⚠️ ${data.message}</p>
-          <p style="margin: 0; color: #92400e; font-size: 14px;">
-            ${data.hint}
-          </p>
-          <p style="margin: 10px 0 0 0; color: #92400e; font-size: 13px;">
-            <strong>Expected output:</strong> A natural language summary including key metrics like 
-            outstanding amount, payment status, total paid, interest rate, and next due date.
-          </p>
-          <p style="margin: 10px 0 0 0; color: #92400e; font-size: 13px;">
-            <strong>Example:</strong> "This is a ${currentLoanData?.type} loan with an outstanding balance of 
-            ₹${currentLoanData?.outstanding?.toLocaleString()}. You have paid ₹${currentLoanData?.total_paid?.toLocaleString()} 
-            so far with ₹${currentLoanData?.total_interest_paid?.toLocaleString()} in interest. 
-            ${currentLoanData?.status === 'Active' ? `Your next payment of ₹${currentLoanData?.emi?.toLocaleString()} is due on ${currentLoanData?.next_due_date}.` : 'This loan has been fully paid off.'}"
-          </p>
-          <p style="margin: 10px 0 0 0; color: #92400e; font-size: 13px;">
-            <strong>Response format:</strong> <code>{ "summary": "..." }</code>
-          </p>
-        </div>
-      `;
-    } else if (data.summary) {
-      // Show the actual summary from implemented endpoint
-      responseText.innerHTML = `<p style="font-size: 15px; line-height: 1.8;">${data.summary}</p>`;
-    } else {
-      throw new Error('Invalid response format');
-    }
-    
-  } catch (error) {
-    // Network or other errors
-    responseText.innerHTML = `
-      <div style="padding: 15px; background: #fee2e2; border-radius: 6px; border-left: 4px solid #dc2626;">
-        <p style="margin: 0 0 10px 0; color: #991b1b; font-weight: bold;">❌ Error</p>
-        <p style="margin: 0; color: #991b1b; font-size: 14px;">
-          ${error.message || 'Failed to connect to the API. Make sure the backend is running.'}
-        </p>
-      </div>
-    `;
-  }
-}
+Agent.mountChat(document.getElementById('loan-chat'), {
+  page: 'loan',
+  askPath: '/loans/ask',
+  summarizePath: '/loans/summarize',
+  placeholder: 'e.g., What is my total interest paid? When is my next payment due? Summarize this loan.',
+  getPayload: () => (currentLoanData ? { loan_id: currentLoanData.id, loan_data: currentLoanData } : null),
+  emptyMessage: 'The loan has not finished loading yet.',
+});
 </script>
 
 </body>
