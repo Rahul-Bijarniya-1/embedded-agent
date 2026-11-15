@@ -15,3 +15,6 @@ embedded-agent-be/scratch/
 # os / node
 .DS_Store
 node_modules/
+
+CLAUDE.md/
+README copy.md/
